@@ -124,3 +124,50 @@ app.get("/api/test-auth", verifyToken, (req, res) => {
   res.json({ message: "You are okay!", user: req.user.email });
 });
 
+// AUTH ROUTES
+// Register- user from Firebase
+app.post('/api/auth/register', verifyToken, async (req, res) => {
+  try {
+    const { uid, email, displayName, photoURL } = req.user;
+
+    let user = await User.findOne({ uid });
+    if (!user) {
+      user = new User({
+        uid,
+        email,
+        displayName: displayName || email.split('@')[0],
+        photoURL: photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName || 'User')}&background=6366f1&color=fff`
+      });
+      await user.save();
+    }
+
+    res.json({
+      _id: user._id,
+      email: user.email,
+      displayName: user.displayName,
+      photoURL: user.photoURL,
+      role: user.role,
+      isPremium: user.isPremium
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+// Get current user
+app.get('/api/users/me', verifyToken, async (req, res) => {
+  try {
+    const user = await User.findOne({ uid: req.user.uid });
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    res.json({
+      displayName: user.displayName,
+      photoURL: user.photoURL,
+      role: user.role,
+      isPremium: user.isPremium
+    });
+  } catch (err) {
+    res.status(500).json({ message: "Server error" });
+  }
+});
