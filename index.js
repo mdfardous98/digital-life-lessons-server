@@ -3,7 +3,7 @@ require("dotenv").config();
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
-const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
+// const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 const admin = require("firebase-admin");
 const jwt = require("jsonwebtoken");
 
@@ -35,6 +35,38 @@ if (process.env.FIREBASE_SERVICE_ACCOUNT) {
 }
 
 // MongoDB
+
+const PORT = process.env.PORT || 5000;
+
+const mongoUri = process.env.MONGODB_URI || "mongodb://localhost:27017/testdb";
+
+app.get("/", (req, res) => {
+  res.send("Digital Life Lessons API is running");
+});
+
+mongoose
+  .connect(mongoUri)
+  .then(() => {
+    app.listen(PORT, () => {
+      console.log(`Server running on port ${PORT}`);
+    });
+  })
+  .catch((err) => {
+    console.error("MongoDB connection error:", err.message);
+    app.listen(PORT, () => {
+      console.log(`Server running on port ${PORT} without DB connection`);
+    });
+  });
+
+
+
+
+
+
+
+
+
+
 
 
 //Stripe
@@ -72,6 +104,19 @@ const verifyAdmin = (req, res, next) => {
 
 // 4: MODELS 
 
+// MONGOOSE MODELS
+const userSchema = new mongoose.Schema({
+  uid: { type: String, required: true, unique: true },
+  email: { type: String, required: true, unique: true },
+  displayName: { type: String },
+  photoURL: { type: String },
+  role: { type: String, enum: ['user', 'admin'], default: 'user' },
+  isPremium: { type: Boolean, default: false },
+  createdAt: { type: Date, default: Date.now }
+});
+
+const User = mongoose.model('User', userSchema);
+
 //5: ROUTES 
 
 // Test route
@@ -79,17 +124,3 @@ app.get("/api/test-auth", verifyToken, (req, res) => {
   res.json({ message: "You are okay!", user: req.user.email });
 });
 
-// 6: SERVER START
-const PORT = process.env.PORT || 5000;
-app.get("/", (req, res) => {
-  res.send("Digital Life Lessons API is running");
-});
-
-mongoose
-  .connect(process.env.MONGO_URI)
-  .then(() => {
-    app.listen(PORT, () => {
-      console.log(`Server running on port ${PORT}`);
-    });
-  })
-  .catch((err) => console.log(err));
