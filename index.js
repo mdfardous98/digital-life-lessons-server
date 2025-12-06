@@ -95,11 +95,17 @@ const verifyToken = async (req, res, next) => {
 };
 
 
-const verifyAdmin = (req, res, next) => {
-  if (req.user?.role !== "admin") {
-    return res.status(403).json({ message: "Admin access required" });
+const verifyAdmin = async (req, res, next) => {
+  try {
+    const user = await User.findOne({ uid: req.user.uid });
+    if (!user || user.role !== "admin") {
+      return res.status(403).json({ message: "Admin access required" });
+    }
+    req.user.role = user.role;
+    next();
+  } catch (err) {
+    res.status(500).json({ message: "Server error" });
   }
-  next();
 };
 
 // 4: MODELS 
