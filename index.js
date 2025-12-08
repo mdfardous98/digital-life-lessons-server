@@ -404,3 +404,30 @@ const favoriteSchema = new mongoose.Schema(
 
 favoriteSchema.index({ userId: 1, lessonId: 1 }, { unique: true });
 const Favorite = mongoose.model("Favorite", favoriteSchema);
+
+
+
+// Report Schema
+const reportSchema = new mongoose.Schema(
+  {
+    lessonId: { type: mongoose.Schema.Types.ObjectId, ref: "Lesson", required: true },
+    reporterId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    reporterEmail: { type: String, required: true },
+    reason: {
+      type: String,
+      enum: [
+        "Inappropriate Content",
+        "Hate Speech or Harassment",
+        "Misleading or False Information",
+        "Spam or Promotional Content",
+        "Sensitive or Disturbing Content",
+        "Other",
+      ],
+      required: true,
+    },
+    message: String,
+  },
+  { timestamps: true }
+);
+
+const Report = mongoose.model("Report", reportSchema);
