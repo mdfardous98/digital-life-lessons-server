@@ -213,3 +213,49 @@ app.get('/api/users/me', verifyToken, async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 });
+
+
+
+// LESSON ROUTES
+
+app.post("/api/lessons", verifyToken, async (req, res) => {
+  try {
+    const {
+      title,
+      description,
+      category,
+      emotionalTone,
+      image,
+      visibility,
+      accessLevel,
+    } = req.body;
+    const authorUid = req.user.uid;
+
+    // Check if user is premium for premium lesson
+    const user = await User.findOne({ uid: authorUid });
+    if (accessLevel === "premium" && !user.isPremium) {
+      return res
+        .status(403)
+        .json({ message: "Upgrade to Premium to create premium lessons" });
+    }
+
+    const lesson = new Lesson({
+      title,
+      description,
+      category,
+      category,
+      emotionalTone,
+      image: image || null,
+      visibility,
+      accessLevel,
+      author: user._id,
+      authorUid,
+    });
+
+    await lesson.save();
+    res.status(201).json(lesson);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Failed to create lesson" });
+  }
+});
