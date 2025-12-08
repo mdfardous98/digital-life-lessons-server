@@ -22,7 +22,6 @@ app.use(express.json());
 //2:  CONFIGURATIONS
 
 // Firebase Admin
-
 if (process.env.FIREBASE_SERVICE_ACCOUNT) {
   const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
   admin.initializeApp({
@@ -35,9 +34,7 @@ if (process.env.FIREBASE_SERVICE_ACCOUNT) {
 }
 
 // MongoDB
-
 const PORT = process.env.PORT || 5000;
-
 const mongoUri = process.env.MONGODB_URI || "mongodb://localhost:27017/testdb";
 
 app.get("/", (req, res) => {
@@ -58,10 +55,113 @@ mongoose
     });
   });
 
-//Stripe
+// 3: MODELS
 
-//3: MIDDLEWARE
+// User Model
+const userSchema = new mongoose.Schema({
+  uid: { type: String, required: true, unique: true },
+  email: { type: String, required: true, unique: true },
+  displayName: { type: String },
+  photoURL: { type: String },
+  role: { type: String, enum: ["user", "admin"], default: "user" },
+  isPremium: { type: Boolean, default: false },
+  createdAt: { type: Date, default: Date.now },
+});
+const User = mongoose.model("User", userSchema);
 
+// Lesson Model
+const lessonSchema = new mongoose.Schema({
+  title: { type: String, required: true },
+  description: { type: String, required: true },
+  category: {
+    type: String,
+    enum: [
+      "Personal Growth",
+      "Career",
+      "Relationships",
+      "Mindset",
+      "Mistakes Learned",
+    ],
+    required: true,
+  },
+  emotionalTone: {
+    type: String,
+    enum: ["Motivational", "Sad", "Realization", "Gratitude"],
+    required: true,
+  },
+  image: { type: String },
+  visibility: { type: String, enum: ["public", "private"], default: "private" },
+  accessLevel: { type: String, enum: ["free", "premium"], default: "free" },
+  author: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+  authorUid: { type: String, required: true },
+  likes: [{ type: String }],
+  likesCount: { type: Number, default: 0 },
+  createdAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date, default: Date.now },
+});
+const Lesson = mongoose.model("Lesson", lessonSchema);
+
+// Favorite Model
+const favoriteSchema = new mongoose.Schema(
+  {
+    userId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+    },
+    lessonId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Lesson",
+      required: true,
+    },
+  },
+  { timestamps: true }
+);
+favoriteSchema.index({ userId: 1, lessonId: 1 }, { unique: true });
+const Favorite = mongoose.model("Favorite", favoriteSchema);
+
+// Report Model
+const reportSchema = new mongoose.Schema(
+  {
+    lessonId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Lesson",
+      required: true,
+    },
+    reporterId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    reporterEmail: { type: String, required: true },
+    reason: {
+      type: String,
+      enum: [
+        "Inappropriate Content",
+        "Hate Speech or Harassment",
+        "Misleading or False Information",
+        "Spam or Promotional Content",
+        "Sensitive or Disturbing Content",
+        "Other",
+      ],
+      required: true,
+    },
+    message: String,
+  },
+  { timestamps: true }
+);
+const Report = mongoose.model("Report", reportSchema);
+
+// Comment Model
+const commentSchema = new mongoose.Schema({
+  lessonId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Lesson",
+    required: true,
+  },
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+  commentText: { type: String, required: true },
+  createdAt: { type: Date, default: Date.now },
+});
+const Comment = mongoose.model("Comment", commentSchema);
+
+//4: MIDDLEWARE- Auth
 const verifyToken = async (req, res, next) => {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
@@ -92,64 +192,9 @@ const verifyAdmin = async (req, res, next) => {
   }
 };
 
-// 4: MODELS
-
-// MONGOOSE MODELS
-const userSchema = new mongoose.Schema({
-  uid: { type: String, required: true, unique: true },
-  email: { type: String, required: true, unique: true },
-  displayName: { type: String },
-  photoURL: { type: String },
-  role: { type: String, enum: ["user", "admin"], default: "user" },
-  isPremium: { type: Boolean, default: false },
-  createdAt: { type: Date, default: Date.now },
-});
-
-const User = mongoose.model("User", userSchema);
-
-//  MONGOOSE MODEL - Lesson
-
-const lessonSchema = new mongoose.Schema({
-  title: { type: String, required: true },
-  description: { type: String, required: true },
-  category: {
-    type: String,
-    enum: [
-      "Personal Growth",
-      "Career",
-      "Relationships",
-      "Mindset",
-      "Mistakes Learned",
-    ],
-    required: true,
-  },
-  emotionalTone: {
-    type: String,
-    enum: ["Motivational", "Sad", "Realization", "Gratitude"],
-    required: true,
-  },
-  image: { type: String },
-  visibility: { type: String, enum: ["public", "private"], default: "private" },
-  accessLevel: { type: String, enum: ["free", "premium"], default: "free" },
-  author: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
-  authorUid: { type: String, required: true },
-  likes: [{ type: String }],
-  likesCount: { type: Number, default: 0 },
-  createdAt: { type: Date, default: Date.now },
-  updatedAt: { type: Date, default: Date.now },
-});
-
-const Lesson = mongoose.model("Lesson", lessonSchema);
-
 //5: ROUTES
 
-// Test route
-app.get("/api/test-auth", verifyToken, (req, res) => {
-  res.json({ message: "You are okay!", user: req.user.email });
-});
-
 // AUTH ROUTES
-// Register- user from Firebase
 app.post("/api/auth/register", verifyToken, async (req, res) => {
   try {
     const { uid, email, displayName, photoURL } = req.user;
@@ -182,7 +227,6 @@ app.post("/api/auth/register", verifyToken, async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 });
-
 // Get current user
 app.get("/api/users/me", verifyToken, async (req, res) => {
   try {
@@ -201,7 +245,6 @@ app.get("/api/users/me", verifyToken, async (req, res) => {
 });
 
 // LESSON ROUTES
-
 app.post("/api/lessons", verifyToken, async (req, res) => {
   try {
     const {
@@ -215,7 +258,6 @@ app.post("/api/lessons", verifyToken, async (req, res) => {
     } = req.body;
     const authorUid = req.user.uid;
 
-    // Check if user is premium for premium lesson
     const user = await User.findOne({ uid: authorUid });
     if (accessLevel === "premium" && !user.isPremium) {
       return res
@@ -238,12 +280,10 @@ app.post("/api/lessons", verifyToken, async (req, res) => {
     await lesson.save();
     res.status(201).json(lesson);
   } catch (err) {
-    console.error(err);
     res.status(500).json({ message: "Failed to create lesson" });
   }
 });
 
-/* Get all lessons of current user */
 app.get("/api/lessons/my", verifyToken, async (req, res) => {
   try {
     const lessons = await Lesson.find({ authorUid: req.user.uid }).sort({
@@ -255,7 +295,19 @@ app.get("/api/lessons/my", verifyToken, async (req, res) => {
   }
 });
 
-/* Get public lessons  */
+app.get("/api/lessons/my/:id", verifyToken, async (req, res) => {
+  try {
+    const lesson = await Lesson.findOne({
+      _id: req.params.id,
+      authorUid: req.user.uid,
+    });
+    if (!lesson) return res.status(404).json({ message: "Not found" });
+    res.json(lesson);
+  } catch (err) {
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
 app.get("/api/lessons/public", async (req, res) => {
   try {
     const { category, tone, search } = req.query;
@@ -317,10 +369,53 @@ app.delete("/api/lessons/:id", verifyToken, async (req, res) => {
   }
 });
 
+/* ==== COMMENTS ROUTES ==== */
+app.get("/api/lessons/:id/comments", async (req, res) => {
+  try {
+    const comments = await Comment.find({ lessonId: req.params.id })
+      .populate("userId", "displayName photoURL")
+      .sort({ createdAt: -1 });
+    res.json(comments);
+  } catch (err) {
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+app.post("/api/lessons/:id/comments", verifyToken, async (req, res) => {
+  try {
+    const user = await User.findOne({ uid: req.user.uid });
+    const comment = new Comment({
+      lessonId: req.params.id,
+      userId: user._id,
+      commentText: req.body.commentText,
+    });
+    await comment.save();
+    res.status(201).json(comment);
+  } catch (err) {
+    res.status(500).json({ message: "Failed to comment" });
+  }
+});
+
+// Admin routes
+app.get("/api/admin/users", verifyToken, verifyAdmin, async (req, res) => {
+  try {
+    const users = await User.find();
+    res.json(users);
+  } catch (err) {
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+app.get("/api/admin/lessons", verifyToken, verifyAdmin, async (req, res) => {
+  try {
+    const lessons = await Lesson.find().populate("author", "displayName");
+    res.json(lessons);
+  } catch (err) {
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
 //Stripe
-
-// Create checkout session
-
 app.post("/api/create-checkout-session", verifyToken, async (req, res) => {
   try {
     const user = await User.findOne({ uid: req.user.uid });
@@ -356,12 +451,11 @@ app.post("/api/create-checkout-session", verifyToken, async (req, res) => {
 
     res.json({ url: session.url });
   } catch (err) {
-    console.error(err);
     res.status(500).json({ message: "Payment error" });
   }
 });
 
-// Raw body for Stripe webhook
+// Stripe Webhook
 app.post(
   "/api/webhook",
   express.raw({ type: "application/json" }),
@@ -376,62 +470,18 @@ app.post(
         process.env.STRIPE_WEBHOOK_SECRET
       );
     } catch (err) {
-      console.log(`Webhook Error: ${err.message}`);
       return res.status(400).send(`Webhook Error: ${err.message}`);
     }
 
     if (event.type === "checkout.session.completed") {
       const session = event.data.object;
       const userId = session.metadata.userId;
-
       await User.findByIdAndUpdate(userId, { isPremium: true });
-      console.log(`Premium activated for user: ${userId}`);
     }
 
     res.json({ received: true });
   }
 );
-
-
-// Favorite Schema
-const favoriteSchema = new mongoose.Schema(
-  {
-    userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
-    lessonId: { type: mongoose.Schema.Types.ObjectId, ref: "Lesson", required: true },
-  },
-  { timestamps: true }
-);
-
-favoriteSchema.index({ userId: 1, lessonId: 1 }, { unique: true });
-const Favorite = mongoose.model("Favorite", favoriteSchema);
-
-
-
-// Report Schema
-const reportSchema = new mongoose.Schema(
-  {
-    lessonId: { type: mongoose.Schema.Types.ObjectId, ref: "Lesson", required: true },
-    reporterId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
-    reporterEmail: { type: String, required: true },
-    reason: {
-      type: String,
-      enum: [
-        "Inappropriate Content",
-        "Hate Speech or Harassment",
-        "Misleading or False Information",
-        "Spam or Promotional Content",
-        "Sensitive or Disturbing Content",
-        "Other",
-      ],
-      required: true,
-    },
-    message: String,
-  },
-  { timestamps: true }
-);
-
-const Report = mongoose.model("Report", reportSchema);
-
 
 // Toggle Like
 app.post("/api/lessons/:id/like", verifyToken, async (req, res) => {
@@ -499,7 +549,9 @@ app.post("/api/lessons/:id/report", verifyToken, async (req, res) => {
 // Admin: Get all reports
 app.get("/api/admin/reports", verifyToken, verifyAdmin, async (req, res) => {
   try {
-    const reports = await Report.find().populate("lessonId", "title").sort({ createdAt: -1 });
+    const reports = await Report.find()
+      .populate("lessonId", "title")
+      .sort({ createdAt: -1 });
     res.json(reports);
   } catch (err) {
     res.status(500).json({ message: "Server error" });
@@ -507,55 +559,61 @@ app.get("/api/admin/reports", verifyToken, verifyAdmin, async (req, res) => {
 });
 
 // Admin: Delete lesson (from reports)
-app.delete("/api/admin/lessons/:id", verifyToken, verifyAdmin, async (req, res) => {
-  try {
-    await Lesson.findByIdAndDelete(req.params.id);
-    await Report.deleteMany({ lessonId: req.params.id });
-    res.json({ success: true });
-  } catch (err) {
-    res.status(500).json({ message: "Failed" });
+app.delete(
+  "/api/admin/lessons/:id",
+  verifyToken,
+  verifyAdmin,
+  async (req, res) => {
+    try {
+      await Lesson.findByIdAndDelete(req.params.id);
+      await Report.deleteMany({ lessonId: req.params.id });
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ message: "Failed" });
+    }
   }
-});
+);
 
-// Get single lesson by ID (public + private access control)
+// Get single lesson by ID (public + premium access control)
 app.get("/api/lessons/public/:id", async (req, res) => {
   try {
-    const lesson = await Lesson.findById(req.params.id).populate("author", "displayName photoURL");
+    const lesson = await Lesson.findById(req.params.id).populate(
+      "author",
+      "displayName photoURL"
+    );
     if (!lesson) return res.status(404).json({ message: "Lesson not found" });
 
-    // If premium lesson and user not premium → hide content
     const token = req.headers.authorization?.split(" ")[1];
-    if (lesson.accessLevel === "premium" && token) {
-      try {
-        const decoded = await admin.auth().verifyIdToken(token);
-        const user = await User.findOne({ uid: decoded.uid });
-        if (!user?.isPremium) {
-          //  hidden content
+    if (lesson.accessLevel === "premium") {
+      if (token) {
+        try {
+          const decoded = await admin.auth().verifyIdToken(token);
+          const user = await User.findOne({ uid: decoded.uid });
+          if (!user?.isPremium) {
+            return res.json({
+              ...lesson.toObject(),
+              description: "[Premium content hidden]",
+              image: null,
+            });
+          }
+        } catch (err) {
           return res.json({
             ...lesson.toObject(),
             description: "[Premium content hidden]",
             image: null,
           });
         }
-      } catch (err) {
-        // token invalid → treat as not premium
+      } else {
         return res.json({
           ...lesson.toObject(),
           description: "[Premium content hidden]",
           image: null,
         });
       }
-    } else if (lesson.accessLevel === "premium" && !token) {
-      return res.json({
-        ...lesson.toObject(),
-        description: "[Premium content hidden]",
-        image: null,
-      });
     }
 
     res.json(lesson);
   } catch (err) {
-    
     res.status(500).json({ message: "Server error" });
   }
 });
