@@ -559,3 +559,17 @@ app.get("/api/lessons/public/:id", async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 });
+
+// Get user's favorites
+app.get("/api/favorites", verifyToken, async (req, res) => {
+  try {
+    const user = await User.findOne({ uid: req.user.uid });
+    const favorites = await Favorite.find({ userId: user._id }).populate({
+      path: "lessonId",
+      populate: { path: "author", select: "displayName photoURL" },
+    });
+    res.json(favorites.map((f) => f.lessonId));
+  } catch (err) {
+    res.status(500).json({ message: "Server error" });
+  }
+});
