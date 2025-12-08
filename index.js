@@ -296,3 +296,38 @@ app.get('/api/lessons/public', async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 });
+
+/* Update lesson */
+app.put('/api/lessons/:id', verifyToken, async (req, res) => {
+  try {
+    const lesson = await Lesson.findById(req.params.id);
+    if (!lesson) return res.status(404).json({ message: "Lesson not found" });
+    if (lesson.authorUid !== req.user.uid) return res.status(403).json({ message: "Not authorized" });
+
+    const user = await User.findOne({ uid: req.user.uid });
+    if (req.body.accessLevel === 'premium' && !user.isPremium) {
+      return res.status(403).json({ message: "Premium required" });
+    }
+
+    Object.assign(lesson, req.body);
+    lesson.updatedAt = Date.now();
+    await lesson.save();
+    res.json(lesson);
+  } catch (err) {
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+/* Delete lesson */
+app.delete('/api/lessons/:id', verifyToken, async (req, res) => {
+  try {
+    const lesson = await Lesson.findById(req.params.id);
+    if (!lesson) return res.status(404).json({ message: "Not found" });
+    if (lesson.authorUid !== req.user.uid) return res.status(403).json({ message: "Not authorized" });
+
+    await lesson.deleteOne();
+    res.json({ message: "Lesson deleted" });
+  } catch (err) {
+    res.status(500).json({ message: "Server error" });
+  }
+});
