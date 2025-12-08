@@ -1,9 +1,8 @@
-
 require("dotenv").config();
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
-// const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
+const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 const admin = require("firebase-admin");
 const jwt = require("jsonwebtoken");
 
@@ -11,17 +10,18 @@ const jwt = require("jsonwebtoken");
 const app = express();
 
 // middleware
-app.use(cors({
-  origin: process.env.CLIENT_URL || "http://localhost:5173",
-  credentials: true,
+app.use(
+  cors({
+    origin: process.env.CLIENT_URL || "http://localhost:5173",
+    credentials: true,
     optionSuccessStatus: 200,
-}));
+  })
+);
 app.use(express.json());
 
 //2:  CONFIGURATIONS
 
-// Firebase Admin 
-
+// Firebase Admin
 
 if (process.env.FIREBASE_SERVICE_ACCOUNT) {
   const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
@@ -58,24 +58,9 @@ mongoose
     });
   });
 
-
-
-
-
-
-
-
-
-
-
-
 //Stripe
 
-
-
 //3: MIDDLEWARE
-
-
 
 const verifyToken = async (req, res, next) => {
   const authHeader = req.headers.authorization;
@@ -94,7 +79,6 @@ const verifyToken = async (req, res, next) => {
   }
 };
 
-
 const verifyAdmin = async (req, res, next) => {
   try {
     const user = await User.findOne({ uid: req.user.uid });
@@ -108,7 +92,7 @@ const verifyAdmin = async (req, res, next) => {
   }
 };
 
-// 4: MODELS 
+// 4: MODELS
 
 // MONGOOSE MODELS
 const userSchema = new mongoose.Schema({
@@ -116,13 +100,12 @@ const userSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true },
   displayName: { type: String },
   photoURL: { type: String },
-  role: { type: String, enum: ['user', 'admin'], default: 'user' },
+  role: { type: String, enum: ["user", "admin"], default: "user" },
   isPremium: { type: Boolean, default: false },
-  createdAt: { type: Date, default: Date.now }
+  createdAt: { type: Date, default: Date.now },
 });
 
-const User = mongoose.model('User', userSchema);
-
+const User = mongoose.model("User", userSchema);
 
 //  MONGOOSE MODEL - Lesson
 
@@ -150,7 +133,7 @@ const lessonSchema = new mongoose.Schema({
   accessLevel: { type: String, enum: ["free", "premium"], default: "free" },
   author: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
   authorUid: { type: String, required: true },
-  likes: [{ type: String }], 
+  likes: [{ type: String }],
   likesCount: { type: Number, default: 0 },
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },
@@ -158,8 +141,7 @@ const lessonSchema = new mongoose.Schema({
 
 const Lesson = mongoose.model("Lesson", lessonSchema);
 
-
-//5: ROUTES 
+//5: ROUTES
 
 // Test route
 app.get("/api/test-auth", verifyToken, (req, res) => {
@@ -168,7 +150,7 @@ app.get("/api/test-auth", verifyToken, (req, res) => {
 
 // AUTH ROUTES
 // Register- user from Firebase
-app.post('/api/auth/register', verifyToken, async (req, res) => {
+app.post("/api/auth/register", verifyToken, async (req, res) => {
   try {
     const { uid, email, displayName, photoURL } = req.user;
 
@@ -177,8 +159,12 @@ app.post('/api/auth/register', verifyToken, async (req, res) => {
       user = new User({
         uid,
         email,
-        displayName: displayName || email.split('@')[0],
-        photoURL: photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName || 'User')}&background=6366f1&color=fff`
+        displayName: displayName || email.split("@")[0],
+        photoURL:
+          photoURL ||
+          `https://ui-avatars.com/api/?name=${encodeURIComponent(
+            displayName || "User"
+          )}&background=6366f1&color=fff`,
       });
       await user.save();
     }
@@ -189,7 +175,7 @@ app.post('/api/auth/register', verifyToken, async (req, res) => {
       displayName: user.displayName,
       photoURL: user.photoURL,
       role: user.role,
-      isPremium: user.isPremium
+      isPremium: user.isPremium,
     });
   } catch (err) {
     console.error(err);
@@ -198,7 +184,7 @@ app.post('/api/auth/register', verifyToken, async (req, res) => {
 });
 
 // Get current user
-app.get('/api/users/me', verifyToken, async (req, res) => {
+app.get("/api/users/me", verifyToken, async (req, res) => {
   try {
     const user = await User.findOne({ uid: req.user.uid });
     if (!user) return res.status(404).json({ message: "User not found" });
@@ -207,14 +193,12 @@ app.get('/api/users/me', verifyToken, async (req, res) => {
       displayName: user.displayName,
       photoURL: user.photoURL,
       role: user.role,
-      isPremium: user.isPremium
+      isPremium: user.isPremium,
     });
   } catch (err) {
     res.status(500).json({ message: "Server error" });
   }
 });
-
-
 
 // LESSON ROUTES
 
@@ -260,12 +244,12 @@ app.post("/api/lessons", verifyToken, async (req, res) => {
   }
 });
 
-
 /* Get all lessons of current user */
-app.get('/api/lessons/my', verifyToken, async (req, res) => {
+app.get("/api/lessons/my", verifyToken, async (req, res) => {
   try {
-    const lessons = await Lesson.find({ authorUid: req.user.uid })
-      .sort({ createdAt: -1 });
+    const lessons = await Lesson.find({ authorUid: req.user.uid }).sort({
+      createdAt: -1,
+    });
     res.json(lessons);
   } catch (err) {
     res.status(500).json({ message: "Server error" });
@@ -273,22 +257,22 @@ app.get('/api/lessons/my', verifyToken, async (req, res) => {
 });
 
 /* Get public lessons  */
-app.get('/api/lessons/public', async (req, res) => {
+app.get("/api/lessons/public", async (req, res) => {
   try {
     const { category, tone, search } = req.query;
-    let query = { visibility: 'public' };
+    let query = { visibility: "public" };
 
     if (category) query.category = category;
     if (tone) query.emotionalTone = tone;
     if (search) {
       query.$or = [
-        { title: { $regex: search, $options: 'i' } },
-        { description: { $regex: search, $options: 'i' } }
+        { title: { $regex: search, $options: "i" } },
+        { description: { $regex: search, $options: "i" } },
       ];
     }
 
     const lessons = await Lesson.find(query)
-      .populate('author', 'displayName photoURL')
+      .populate("author", "displayName photoURL")
       .sort({ createdAt: -1 });
 
     res.json(lessons);
@@ -298,14 +282,15 @@ app.get('/api/lessons/public', async (req, res) => {
 });
 
 /* Update lesson */
-app.put('/api/lessons/:id', verifyToken, async (req, res) => {
+app.put("/api/lessons/:id", verifyToken, async (req, res) => {
   try {
     const lesson = await Lesson.findById(req.params.id);
     if (!lesson) return res.status(404).json({ message: "Lesson not found" });
-    if (lesson.authorUid !== req.user.uid) return res.status(403).json({ message: "Not authorized" });
+    if (lesson.authorUid !== req.user.uid)
+      return res.status(403).json({ message: "Not authorized" });
 
     const user = await User.findOne({ uid: req.user.uid });
-    if (req.body.accessLevel === 'premium' && !user.isPremium) {
+    if (req.body.accessLevel === "premium" && !user.isPremium) {
       return res.status(403).json({ message: "Premium required" });
     }
 
@@ -319,15 +304,60 @@ app.put('/api/lessons/:id', verifyToken, async (req, res) => {
 });
 
 /* Delete lesson */
-app.delete('/api/lessons/:id', verifyToken, async (req, res) => {
+app.delete("/api/lessons/:id", verifyToken, async (req, res) => {
   try {
     const lesson = await Lesson.findById(req.params.id);
     if (!lesson) return res.status(404).json({ message: "Not found" });
-    if (lesson.authorUid !== req.user.uid) return res.status(403).json({ message: "Not authorized" });
+    if (lesson.authorUid !== req.user.uid)
+      return res.status(403).json({ message: "Not authorized" });
 
     await lesson.deleteOne();
     res.json({ message: "Lesson deleted" });
   } catch (err) {
     res.status(500).json({ message: "Server error" });
+  }
+});
+
+//Stripe
+
+// Create checkout session
+
+app.post("/api/create-checkout-session", verifyToken, async (req, res) => {
+  try {
+    const user = await User.findOne({ uid: req.user.uid });
+    if (user.isPremium) {
+      return res.status(400).json({ message: "Already premium" });
+    }
+
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ["card"],
+      mode: "payment",
+      customer_email: req.user.email,
+      line_items: [
+        {
+          price_data: {
+            currency: "bdt",
+            product_data: {
+              name: "Digital Life Lessons - Lifetime Premium",
+              description:
+                "One-time payment for lifetime access to all premium lessons",
+            },
+            unit_amount: 150000,
+          },
+          quantity: 1,
+        },
+      ],
+      success_url: `${process.env.CLIENT_URL}/payment/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${process.env.CLIENT_URL}/payment/cancel`,
+      metadata: {
+        userId: user._id.toString(),
+        uid: req.user.uid,
+      },
+    });
+
+    res.json({ url: session.url });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Payment error" });
   }
 });
