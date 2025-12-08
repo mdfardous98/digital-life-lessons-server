@@ -259,3 +259,40 @@ app.post("/api/lessons", verifyToken, async (req, res) => {
     res.status(500).json({ message: "Failed to create lesson" });
   }
 });
+
+
+/* Get all lessons of current user */
+app.get('/api/lessons/my', verifyToken, async (req, res) => {
+  try {
+    const lessons = await Lesson.find({ authorUid: req.user.uid })
+      .sort({ createdAt: -1 });
+    res.json(lessons);
+  } catch (err) {
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+/* Get public lessons  */
+app.get('/api/lessons/public', async (req, res) => {
+  try {
+    const { category, tone, search } = req.query;
+    let query = { visibility: 'public' };
+
+    if (category) query.category = category;
+    if (tone) query.emotionalTone = tone;
+    if (search) {
+      query.$or = [
+        { title: { $regex: search, $options: 'i' } },
+        { description: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    const lessons = await Lesson.find(query)
+      .populate('author', 'displayName photoURL')
+      .sort({ createdAt: -1 });
+
+    res.json(lessons);
+  } catch (err) {
+    res.status(500).json({ message: "Server error" });
+  }
+});
