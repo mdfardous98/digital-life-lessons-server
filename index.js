@@ -123,6 +123,42 @@ const userSchema = new mongoose.Schema({
 
 const User = mongoose.model('User', userSchema);
 
+
+//  MONGOOSE MODEL - Lesson
+
+const lessonSchema = new mongoose.Schema({
+  title: { type: String, required: true },
+  description: { type: String, required: true },
+  category: {
+    type: String,
+    enum: [
+      "Personal Growth",
+      "Career",
+      "Relationships",
+      "Mindset",
+      "Mistakes Learned",
+    ],
+    required: true,
+  },
+  emotionalTone: {
+    type: String,
+    enum: ["Motivational", "Sad", "Realization", "Gratitude"],
+    required: true,
+  },
+  image: { type: String },
+  visibility: { type: String, enum: ["public", "private"], default: "private" },
+  accessLevel: { type: String, enum: ["free", "premium"], default: "free" },
+  author: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+  authorUid: { type: String, required: true },
+  likes: [{ type: String }], 
+  likesCount: { type: Number, default: 0 },
+  createdAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date, default: Date.now },
+});
+
+const Lesson = mongoose.model("Lesson", lessonSchema);
+
+
 //5: ROUTES 
 
 // Test route
