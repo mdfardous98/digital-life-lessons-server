@@ -516,3 +516,46 @@ app.delete("/api/admin/lessons/:id", verifyToken, verifyAdmin, async (req, res) 
     res.status(500).json({ message: "Failed" });
   }
 });
+
+// Get single lesson by ID (public + private access control)
+app.get("/api/lessons/public/:id", async (req, res) => {
+  try {
+    const lesson = await Lesson.findById(req.params.id).populate("author", "displayName photoURL");
+    if (!lesson) return res.status(404).json({ message: "Lesson not found" });
+
+    // If premium lesson and user not premium → hide content
+    const token = req.headers.authorization?.split(" ")[1];
+    if (lesson.accessLevel === "premium" && token) {
+      try {
+        const decoded = await admin.auth().verifyIdToken(token);
+        const user = await User.findOne({ uid: decoded.uid });
+        if (!user?.isPremium) {
+          //  hidden content
+          return res.json({
+            ...lesson.toObject(),
+            description: "[Premium content hidden]",
+            image: null,
+          });
+        }
+      } catch (err) {
+        // token invalid → treat as not premium
+        return res.json({
+          ...lesson.toObject(),
+          description: "[Premium content hidden]",
+          image: null,
+        });
+      }
+    } else if (lesson.accessLevel === "premium" && !token) {
+      return res.json({
+        ...lesson.toObject(),
+        description: "[Premium content hidden]",
+        image: null,
+      });
+    }
+
+    res.json(lesson);
+  } catch (err) {
+    
+    res.status(500).json({ message: "Server error" });
+  }
+});
