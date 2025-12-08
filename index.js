@@ -456,3 +456,22 @@ app.post("/api/lessons/:id/like", verifyToken, async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 });
+
+// Toggle Favorite
+app.post("/api/lessons/:id/favorite", verifyToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const user = await User.findOne({ uid: req.user.uid });
+
+    const existing = await Favorite.findOne({ userId: user._id, lessonId: id });
+    if (existing) {
+      await existing.deleteOne();
+      res.json({ favorited: false });
+    } else {
+      await Favorite.create({ userId: user._id, lessonId: id });
+      res.json({ favorited: true });
+    }
+  } catch (err) {
+    res.status(500).json({ message: "Server error" });
+  }
+});
