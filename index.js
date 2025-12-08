@@ -431,3 +431,28 @@ const reportSchema = new mongoose.Schema(
 );
 
 const Report = mongoose.model("Report", reportSchema);
+
+
+// Toggle Like
+app.post("/api/lessons/:id/like", verifyToken, async (req, res) => {
+  try {
+    const lesson = await Lesson.findById(req.params.id);
+    if (!lesson) return res.status(404).json({ message: "Lesson not found" });
+
+    const userUid = req.user.uid;
+    const likedIndex = lesson.likes.indexOf(userUid);
+
+    if (likedIndex === -1) {
+      lesson.likes.push(userUid);
+      lesson.likesCount += 1;
+    } else {
+      lesson.likes.splice(likedIndex, 1);
+      lesson.likesCount -= 1;
+    }
+
+    await lesson.save();
+    res.json({ likesCount: lesson.likesCount, liked: likedIndex === -1 });
+  } catch (err) {
+    res.status(500).json({ message: "Server error" });
+  }
+});
