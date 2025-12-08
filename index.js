@@ -227,7 +227,6 @@ app.post("/api/lessons", verifyToken, async (req, res) => {
       title,
       description,
       category,
-      category,
       emotionalTone,
       image: image || null,
       visibility,
@@ -392,3 +391,16 @@ app.post(
     res.json({ received: true });
   }
 );
+
+
+// Favorite Schema
+const favoriteSchema = new mongoose.Schema(
+  {
+    userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
+    lessonId: { type: mongoose.Schema.Types.ObjectId, ref: "Lesson", required: true },
+  },
+  { timestamps: true }
+);
+
+favoriteSchema.index({ userId: 1, lessonId: 1 }, { unique: true });
+const Favorite = mongoose.model("Favorite", favoriteSchema);
