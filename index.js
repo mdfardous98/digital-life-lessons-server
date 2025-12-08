@@ -475,3 +475,44 @@ app.post("/api/lessons/:id/favorite", verifyToken, async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 });
+
+// Report Lesson
+app.post("/api/lessons/:id/report", verifyToken, async (req, res) => {
+  try {
+    const { reason, message } = req.body;
+    const user = await User.findOne({ uid: req.user.uid });
+
+    await Report.create({
+      lessonId: req.params.id,
+      reporterId: user?._id,
+      reporterEmail: req.user.email,
+      reason,
+      message,
+    });
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ message: "Failed to report" });
+  }
+});
+
+// Admin: Get all reports
+app.get("/api/admin/reports", verifyToken, verifyAdmin, async (req, res) => {
+  try {
+    const reports = await Report.find().populate("lessonId", "title").sort({ createdAt: -1 });
+    res.json(reports);
+  } catch (err) {
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+// Admin: Delete lesson (from reports)
+app.delete("/api/admin/lessons/:id", verifyToken, verifyAdmin, async (req, res) => {
+  try {
+    await Lesson.findByIdAndDelete(req.params.id);
+    await Report.deleteMany({ lessonId: req.params.id });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ message: "Failed" });
+  }
+});
