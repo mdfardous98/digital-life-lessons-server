@@ -33,3 +33,9 @@ build/
 
 
 serviceAccountKey.json
+
+serviceaccount.json
+
+get-test-token.js
+
+api-tests.http
