@@ -6,7 +6,7 @@ const helmet = require("helmet");
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY || "");
 const admin = require("firebase-admin");
 
-//  init
+//  APP INITIALIZATION & GLOBAL MIDDLEWARE
 const app = express();
 app.use(helmet());
 app.use(
@@ -16,79 +16,7 @@ app.use(
   })
 );
 
-/**
- * Stripe Webhook
- */
-app.post(
-  "/api/webhook",
-  express.raw({ type: "application/json" }),
-  async (req, res) => {
-    const sig = req.headers["stripe-signature"];
-    if (!sig) {
-      return res.status(400).send("Missing Stripe signature");
-    }
-    let event;
-    try {
-      event = stripe.webhooks.constructEvent(
-        req.body,
-        sig,
-        process.env.STRIPE_WEBHOOK_SECRET
-      );
-    } catch (err) {
-      console.error(
-        "Stripe webhook constructEvent error:",
-        err?.message || err
-      );
-      return res.status(400).send(`Webhook Error: ${err.message}`);
-    }
-
-    if (event.type === "checkout.session.completed") {
-      const session = event.data.object;
-      try {
-        // Find user by userId (MongoDB _id) or uid (Firebase uid)
-        const userId = session.metadata?.userId;
-        const uid = session.client_reference_id || session.metadata?.uid;
-
-        if (userId) {
-          await User.findByIdAndUpdate(
-            userId,
-            { isPremium: true },
-            { new: true }
-          );
-          console.log(`Webhook: upgraded userId ${userId} to premium`);
-        } else if (uid) {
-          await User.findOneAndUpdate(
-            { uid },
-            { isPremium: true },
-            { new: true }
-          );
-          console.log(`Webhook: upgraded uid ${uid} to premium`);
-        } else {
-          console.warn("Webhook: no userId or uid in session metadata");
-        }
-      } catch (err) {
-        console.error("Webhook processing error:", err);
-      }
-    }
-
-    res.json({ received: true });
-  }
-);
-// WEBHOOK ROUTE END
-
-app.use(express.json());
-
-//   serviceaccount.json file
-try {
-  const serviceAccount = require("./serviceaccount.json");
-  admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount),
-  });
-} catch (err) {
-  console.error("❌ Failed to load or initialize Firebase:", err.message);
-}
-
-//  Mongoose models
+//  MONGOOSE SCHEMA & MODEL DEFINITIONS
 const { Schema } = mongoose;
 
 /* User */
@@ -109,7 +37,6 @@ const userSchema = new Schema(
   },
   { timestamps: true }
 );
-
 const User = mongoose.model("User", userSchema);
 
 /* Lesson */
@@ -147,7 +74,6 @@ const lessonSchema = new Schema(
   },
   { timestamps: true }
 );
-
 const Lesson = mongoose.model("Lesson", lessonSchema);
 
 /* Comment */
@@ -207,14 +133,104 @@ const reportSchema = new Schema(
   { timestamps: true }
 );
 const Report = mongoose.model("Report", reportSchema);
+// END OF MONGOOSE MODELS
+
+// 4. FIREBASE ADMIN INIT
+try {
+  let serviceAccount;
+
+  if (process.env.FB_SERVICE_KEY) {
+    const decoded = Buffer.from(process.env.FB_SERVICE_KEY, "base64").toString(
+      "utf8"
+    );
+    serviceAccount = JSON.parse(decoded);
+  } else {
+    serviceAccount = require("./serviceaccount.json");
+  }
+
+  admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount),
+  });
+
+  console.log(" Firebase Admin initialized successfully");
+} catch (err) {
+  console.error(" Failed to load or initialize Firebase Admin:", err.message);
+}
+
+/**
+ *  Stripe Webhook
+ *
+ */
+app.post(
+  "/api/webhook",
+  express.raw({ type: "application/json" }),
+  async (req, res) => {
+    const sig = req.headers["stripe-signature"];
+    if (!sig) {
+      return res.status(400).send("Missing Stripe signature");
+    }
+    let event;
+    try {
+      event = stripe.webhooks.constructEvent(
+        req.body,
+        sig,
+        process.env.STRIPE_WEBHOOK_SECRET
+      );
+    } catch (err) {
+      console.error(
+        "Stripe webhook constructEvent error:",
+        err?.message || err
+      );
+      return res.status(400).send(`Webhook Error: ${err.message}`);
+    }
+
+    if (event.type === "checkout.session.completed") {
+      const session = event.data.object;
+      try {
+        // Find user by userId (MongoDB _id) or uid (Firebase uid)
+        const userId = session.metadata?.userId;
+        const uid = session.client_reference_id || session.metadata?.uid;
+
+        if (userId) {
+          await User.findByIdAndUpdate(
+            userId,
+            { isPremium: true },
+            { new: true }
+          );
+          console.log(`Webhook: upgraded userId ${userId} to premium`);
+        } else if (uid) {
+          await User.findOneAndUpdate(
+            { uid },
+            { isPremium: true },
+            { new: true }
+          );
+          console.log(`Webhook: upgraded uid ${uid} to premium`);
+        } else {
+          console.warn("Webhook: no userId or uid in session metadata");
+        }
+      } catch (err) {
+        console.error("Webhook processing error:", err);
+      }
+    }
+
+    res.json({ received: true });
+  }
+);
+// WEBHOOK ROUTE END
+
+//  JSON Body Parser
+app.use(express.json());
+
+// AUTH MIDDLEWARE DEFINITIONS
 
 // Middleware: verifyToken (Firebase Admin)
+
 const verifyToken = async (req, res, next) => {
   const authHeader = req.headers.authorization || req.header("x-auth-token");
   if (!authHeader) {
     return res.status(401).json({ message: "No token provided" });
   }
-  //  token
+  // token
   const token = authHeader.startsWith("Bearer ")
     ? authHeader.split(" ")[1]
     : authHeader;
@@ -225,7 +241,7 @@ const verifyToken = async (req, res, next) => {
 
     let dbUser = await User.findOne({ uid: decoded.uid });
     if (!dbUser) {
-      //  basic user record using Firebase
+      //  user record using Firebase
       dbUser = new User({
         uid: decoded.uid,
         email: decoded.email || `${decoded.uid}@noemail.local`,
@@ -237,7 +253,6 @@ const verifyToken = async (req, res, next) => {
       await dbUser.save();
     }
 
-    //  useful info to req.user
     req.user = {
       uid: dbUser.uid,
       _id: dbUser._id,
@@ -285,9 +300,13 @@ const verifyAdmin = async (req, res, next) => {
   next();
 };
 
-// ----- Routes -----
+//  API ROUTES
+// Root Path
+app.get("/", (req, res) =>
+  res.json({ status: " Digital Life Lessons API is running" })
+);
 // Health
-app.get("/health", (req, res) => res.json({ status: "✅ Server running" }));
+app.get("/health", (req, res) => res.json({ status: " Server running" }));
 
 // Auth sync
 app.post("/api/auth/sync", async (req, res) => {
@@ -380,7 +399,7 @@ app.get("/api/users/me", verifyToken, async (req, res) => {
           );
         }
       } catch (stripeError) {
-        //  don't prevent the request from completing
+        // don't prevent the request from completing
         console.warn(
           `Stripe session retrieval failed for session_id ${session_id}:`,
           stripeError.message
@@ -450,7 +469,7 @@ app.post("/api/lessons", verifyToken, async (req, res) => {
   }
 });
 
-// Update lesson (owner only)
+// Update lesson
 app.put("/api/lessons/:id", verifyToken, async (req, res) => {
   try {
     const lesson = await Lesson.findById(req.params.id);
@@ -479,7 +498,7 @@ app.put("/api/lessons/:id", verifyToken, async (req, res) => {
   }
 });
 
-// Delete lesson (owner only or admin)
+// Delete lesson
 app.delete("/api/lessons/:id", verifyToken, async (req, res) => {
   try {
     const lesson = await Lesson.findById(req.params.id);
@@ -621,7 +640,7 @@ app.get("/api/lessons/:id", optionalAuth, async (req, res) => {
         image: null,
         _premium_locked: true,
       };
-      //  send metadata for display (title, author, etc.)
+      // send metadata for display (title, author, etc.)
       return res.json(masked);
     }
 
@@ -866,7 +885,7 @@ app.use((req, res, next) => {
   res.status(404).json({ message: "Route not found" });
 });
 
-// Connect DB & start server
+// 9. CONNECT DB & START SERVER
 const PORT = process.env.PORT || 5000;
 const MONGODB_URI =
   process.env.MONGODB_URI ||
@@ -877,16 +896,16 @@ const MONGODB_URI =
 mongoose
   .connect(MONGODB_URI)
   .then(() => {
-    console.log("✅ MongoDB connected");
+    console.log(" MongoDB connected");
     app.listen(PORT, () => {
-      console.log(`✅ Server running on port ${PORT}`);
-      console.log(`🌍 Client URL: ${process.env.CLIENT_URL || "not set"}`);
+      console.log(` Server running on port ${PORT}`);
+      console.log(` Client URL: ${process.env.CLIENT_URL || "not set"}`);
     });
   })
   .catch((err) => {
-    console.error("❌ MongoDB connection error:", err.message);
+    console.error(" MongoDB connection error:", err.message);
     // still start server
     app.listen(PORT, () => {
-      console.log(`⚠️ Server running on port ${PORT} without DB connection`);
+      console.log(` Server running on port ${PORT} without DB connection`);
     });
   });

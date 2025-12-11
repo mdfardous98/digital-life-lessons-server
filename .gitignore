@@ -39,3 +39,8 @@ serviceaccount.json
 get-test-token.js
 
 api-tests.http
+decoded.json
+fb_key_base64.txt
+
+
+.vercel
