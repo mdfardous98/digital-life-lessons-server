@@ -5,7 +5,6 @@ const cors = require("cors");
 const helmet = require("helmet");
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY || "");
 const admin = require("firebase-admin");
-// const bodyParser = require("body-parser");
 
 //  init
 const app = express();
@@ -16,9 +15,68 @@ app.use(
     credentials: true,
   })
 );
-//  regular JSON routes
+
+/**
+ * Stripe Webhook
+ */
+app.post(
+  "/api/webhook",
+  express.raw({ type: "application/json" }),
+  async (req, res) => {
+    const sig = req.headers["stripe-signature"];
+    if (!sig) {
+      return res.status(400).send("Missing Stripe signature");
+    }
+    let event;
+    try {
+      event = stripe.webhooks.constructEvent(
+        req.body,
+        sig,
+        process.env.STRIPE_WEBHOOK_SECRET
+      );
+    } catch (err) {
+      console.error(
+        "Stripe webhook constructEvent error:",
+        err?.message || err
+      );
+      return res.status(400).send(`Webhook Error: ${err.message}`);
+    }
+
+    if (event.type === "checkout.session.completed") {
+      const session = event.data.object;
+      try {
+        // Find user by userId (MongoDB _id) or uid (Firebase uid)
+        const userId = session.metadata?.userId;
+        const uid = session.client_reference_id || session.metadata?.uid;
+
+        if (userId) {
+          await User.findByIdAndUpdate(
+            userId,
+            { isPremium: true },
+            { new: true }
+          );
+          console.log(`Webhook: upgraded userId ${userId} to premium`);
+        } else if (uid) {
+          await User.findOneAndUpdate(
+            { uid },
+            { isPremium: true },
+            { new: true }
+          );
+          console.log(`Webhook: upgraded uid ${uid} to premium`);
+        } else {
+          console.warn("Webhook: no userId or uid in session metadata");
+        }
+      } catch (err) {
+        console.error("Webhook processing error:", err);
+      }
+    }
+
+    res.json({ received: true });
+  }
+);
+// WEBHOOK ROUTE END
+
 app.use(express.json());
-// For Stripe webhook route  use raw body on that route
 
 //   serviceaccount.json file
 try {
@@ -28,7 +86,6 @@ try {
   });
 } catch (err) {
   console.error("❌ Failed to load or initialize Firebase:", err.message);
-  process.exit(1);
 }
 
 //  Mongoose models
@@ -168,7 +225,7 @@ const verifyToken = async (req, res, next) => {
 
     let dbUser = await User.findOne({ uid: decoded.uid });
     if (!dbUser) {
-      // create basic user record using Firebase
+      //  basic user record using Firebase
       dbUser = new User({
         uid: decoded.uid,
         email: decoded.email || `${decoded.uid}@noemail.local`,
@@ -196,7 +253,7 @@ const verifyToken = async (req, res, next) => {
   }
 };
 
-// optionalAuth for public endpoints
+// optionalAuth for public
 const optionalAuth = async (req, res, next) => {
   const authHeader = req.headers.authorization || req.header("x-auth-token");
   if (authHeader) {
@@ -232,7 +289,7 @@ const verifyAdmin = async (req, res, next) => {
 // Health
 app.get("/health", (req, res) => res.json({ status: "✅ Server running" }));
 
-// Auth sync/register endpoint - frontend calls this after Firebase login to sync DB
+// Auth sync
 app.post("/api/auth/sync", async (req, res) => {
   try {
     const { uid, email, displayName, photoURL } = req.body;
@@ -265,7 +322,7 @@ app.post("/api/auth/sync", async (req, res) => {
   }
 });
 
-// Register endpoint
+// Register
 app.post("/api/auth/register", verifyToken, async (req, res) => {
   try {
     const { uid, email } = req.user;
@@ -303,6 +360,35 @@ app.get("/api/users/me", verifyToken, async (req, res) => {
   try {
     const dbUser = await User.findOne({ uid: req.user.uid });
     if (!dbUser) return res.status(404).json({ message: "User not found" });
+
+    const { session_id } = req.query;
+
+    // after payment and update status
+    if (session_id && !dbUser.isPremium) {
+      try {
+        const session = await stripe.checkout.sessions.retrieve(session_id);
+
+        if (
+          session.payment_status === "paid" &&
+          session.metadata.uid === dbUser.uid
+        ) {
+          // If paid and user matches, immediately update in DB
+          dbUser.isPremium = true;
+          await dbUser.save();
+          console.log(
+            `User ${dbUser.uid} immediately updated to premium via /api/users/me (session: ${session_id})`
+          );
+        }
+      } catch (stripeError) {
+        //  don't prevent the request from completing
+        console.warn(
+          `Stripe session retrieval failed for session_id ${session_id}:`,
+          stripeError.message
+        );
+      }
+    }
+
+    // Return the user data (updated or not)
     res.json({
       uid: dbUser.uid,
       email: dbUser.email,
@@ -454,11 +540,6 @@ app.get("/api/lessons/public", optionalAuth, async (req, res) => {
       ];
     }
 
-    // Non-premium users should only see free lessons by default
-    if (!req.user || !req.user.isPremium) {
-      query.accessLevel = "free";
-    }
-
     let cursor = Lesson.find(query).populate("author", "displayName photoURL");
     // sorting
     if (sortBy === "newest") cursor = cursor.sort({ createdAt: -1 });
@@ -472,8 +553,7 @@ app.get("/api/lessons/public", optionalAuth, async (req, res) => {
     const masked = lessons.map((lesson) => {
       if (
         lesson.accessLevel === "premium" &&
-        (!req.user || !req.user.isPremium) &&
-        lesson.visibility === "public"
+        (!req.user || !req.user.isPremium)
       ) {
         return {
           ...lesson,
@@ -481,6 +561,10 @@ app.get("/api/lessons/public", optionalAuth, async (req, res) => {
           description: "🔒 This lesson is available to Premium members only.",
           image: null,
           _blurred: true,
+          author: lesson.author,
+          category: lesson.category,
+          emotionalTone: lesson.emotionalTone,
+          accessLevel: "premium",
         };
       }
       return lesson;
@@ -505,32 +589,40 @@ app.get("/api/lessons/:id", optionalAuth, async (req, res) => {
   try {
     const lesson = await Lesson.findById(req.params.id).populate(
       "author",
-      "displayName photoURL"
+      "displayName photoURL role"
     );
     if (!lesson) return res.status(404).json({ message: "Lesson not found" });
 
+    const isOwner = req.user && lesson.authorUid === req.user.uid;
+    const isAdmin = req.user && req.user.role === "admin";
+    const isPremiumUser = req.user && req.user.isPremium;
+    const canView =
+      isOwner ||
+      isAdmin ||
+      lesson.visibility === "public" ||
+      (lesson.visibility === "private" && lesson.authorUid === req.user.uid);
+
     // if private and not owner/admin
-    if (lesson.visibility === "private") {
-      if (
-        !req.user ||
-        (lesson.authorUid !== req.user.uid && req.user.role !== "admin")
-      ) {
-        return res.status(403).json({ message: "This lesson is private" });
-      }
+    if (lesson.visibility === "private" && !isOwner && !isAdmin) {
+      return res.status(403).json({ message: "This lesson is private" });
     }
 
-    // if premium and requester is not premium and not owner
-    if (lesson.accessLevel === "premium") {
-      const isOwner = req.user && lesson.authorUid === req.user.uid;
-      const isPremiumUser = req.user && req.user.isPremium;
-      if (!isOwner && !isPremiumUser) {
-        const masked = {
-          ...lesson.toObject(),
-          description: "[Premium content hidden]",
-          image: null,
-        };
-        return res.json(masked);
-      }
+    // if premium and requester is not premium and not owner/admin
+    if (
+      lesson.accessLevel === "premium" &&
+      !isOwner &&
+      !isAdmin &&
+      !isPremiumUser
+    ) {
+      const masked = {
+        ...lesson.toObject(),
+        description: "[Premium content hidden]",
+        fullDescription: "Upgrade to premium to view the full lesson.",
+        image: null,
+        _premium_locked: true,
+      };
+      //  send metadata for display (title, author, etc.)
+      return res.json(masked);
     }
 
     res.json(lesson);
@@ -598,7 +690,7 @@ app.post("/api/lessons/:id/like", verifyToken, async (req, res) => {
   }
 });
 
-// Toggle favorite (separate collection)
+// Toggle favorite
 app.post("/api/lessons/:id/favorite", verifyToken, async (req, res) => {
   try {
     const user = await User.findOne({ uid: req.user.uid });
@@ -753,6 +845,7 @@ app.post("/api/create-checkout-session", verifyToken, async (req, res) => {
         },
       ],
       client_reference_id: dbUser.uid,
+
       success_url: `${process.env.CLIENT_URL}/payment/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${process.env.CLIENT_URL}/payment/cancel`,
       metadata: {
@@ -767,65 +860,6 @@ app.post("/api/create-checkout-session", verifyToken, async (req, res) => {
     res.status(500).json({ message: "Failed to create checkout session" });
   }
 });
-
-/**
- * Stripe Webhook
- * - STRIPE_WEBHOOK_SECRET is set
- */
-app.post(
-  "/api/webhook",
-  express.raw({ type: "application/json" }),
-  async (req, res) => {
-    const sig = req.headers["stripe-signature"];
-    if (!sig) {
-      return res.status(400).send("Missing Stripe signature");
-    }
-    let event;
-    try {
-      event = stripe.webhooks.constructEvent(
-        req.body,
-        sig,
-        process.env.STRIPE_WEBHOOK_SECRET
-      );
-    } catch (err) {
-      console.error(
-        "Stripe webhook constructEvent error:",
-        err?.message || err
-      );
-      return res.status(400).send(`Webhook Error: ${err.message}`);
-    }
-
-    if (event.type === "checkout.session.completed") {
-      const session = event.data.object;
-      try {
-        //  metadata.client_reference_id or metadata.uid
-        const uid = session.client_reference_id || session.metadata?.uid;
-        const userId = session.metadata?.userId;
-        if (userId) {
-          await User.findByIdAndUpdate(
-            userId,
-            { isPremium: true },
-            { new: true }
-          );
-          console.log(`Webhook: upgraded userId ${userId} to premium`);
-        } else if (uid) {
-          await User.findOneAndUpdate(
-            { uid },
-            { isPremium: true },
-            { new: true }
-          );
-          console.log(`Webhook: upgraded uid ${uid} to premium`);
-        } else {
-          console.warn("Webhook: no userId or uid in session metadata");
-        }
-      } catch (err) {
-        console.error("Webhook processing error:", err);
-      }
-    }
-
-    res.json({ received: true });
-  }
-);
 
 // 404 handler
 app.use((req, res, next) => {
